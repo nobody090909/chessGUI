@@ -1,0 +1,16 @@
+name: docs-and-spec-checks
+on:
+  push:
+  pull_request:
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate OpenAPI structure (basic)
+        run: |
+          test -f docs/openapi.yaml && echo "openapi.yaml ok"
+      - name: Check required files
+        run: |
+          test -f README.md && echo "README ok"
+          test -f docs/ai_api_contract.md && echo "API contract ok"

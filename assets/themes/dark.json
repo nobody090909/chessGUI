@@ -1,0 +1,13 @@
+{
+  "name": "dark",
+  "board": {
+    "light": "#bbbcbc",
+    "dark": "#5a5a5a"
+  },
+  "highlight": {
+    "move_from": "#ffd24d",
+    "move_to": "#9ccc65",
+    "legal_dot": "#f0e68c",
+    "select": "#ffe082"
+  }
+}

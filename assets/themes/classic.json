@@ -1,0 +1,13 @@
+{
+  "name": "classic",
+  "board": {
+    "light": "#EEEED2",
+    "dark": "#769656"
+  },
+  "highlight": {
+    "move_from": "#F6F669",
+    "move_to": "#BACA2B",
+    "legal_dot": "#f1e57a",
+    "select": "#e0c53b"
+  }
+}

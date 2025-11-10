@@ -5,7 +5,7 @@
 chess-proto/
 ├─ README.md
 ├─ LICENSE
-├─ requirements.txt                # 런타임 의존성 선언(버전 고정은 별도 코드 저장소에서 관리)
+├─ requirements.txt                # 런타임 의존성 선언
 ├─ .gitignore
 ├─ .env.example
 ├─ configs/

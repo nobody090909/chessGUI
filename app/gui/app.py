@@ -1,15 +1,12 @@
 from __future__ import annotations
-import json
-import queue
+import queue, threading
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
-
 import chess
 
-from engine.simple_ai import SimpleAI
 from engine.rules import GameState
-from engine.remote_ai import RemoteAIClient, RemoteAIWorker
+from engine.simple_ai import SimpleAI
 from gui.board_view import BoardView
 from gui.assets_loader import load_piece_images
 from gui.dialogs import ask_fen, save_pgn_dialog
@@ -20,58 +17,34 @@ DEFAULT_SQ = 72
 class ChessApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Python Chess — Remote AI")
+        self.title("Python Chess — Local AI")
         self.resizable(False, False)
 
         self.project_root = Path(__file__).resolve().parents[2]
         self.logger = setup_logging(self.project_root)
 
-        # Config
-        self.configs = self._load_config()
         self.sq_size = DEFAULT_SQ
         self.assets = load_piece_images(self.project_root, self.sq_size)
 
-        # Game & AI
         self.game = GameState()
-        self.ai_color: str | None = None   # None | "white" | "black"
-        self.ai_client: RemoteAIClient | None = None
-        self.ai_worker: RemoteAIWorker | None = None
+        self.ai_color: str | None = None
+        self.ai_worker: threading.Thread | None = None
         self.ai_queue: queue.Queue = queue.Queue()
-        self.ai_think_ms = int(self.configs.get("THINK_MS", 2000))
+        self.player_bottom: str = "white"
 
-        if (url := self.configs.get("AI_URL")):
-            self.ai_client = RemoteAIClient(base_url=url, api_key=self.configs.get("API_KEY"),
-                                            timeout=float(self.configs.get("TIMEOUT", 15)))
-
-        # UI
         self._build_menu()
         self.status_var = tk.StringVar(value=self.game.status_text())
         self.board_view = BoardView(self, self.game, self.assets, sq_size=self.sq_size,
                                     on_user_move=self._on_user_move)
+        self.board_view.set_bottom(self.player_bottom)
         self.board_view.pack()
         self.status_bar = tk.Label(self, textvariable=self.status_var, anchor="w", padx=8)
         self.status_bar.pack(fill="x")
 
-        # Polling
         self.after(80, self._poll_ai)
 
-    # ----- Config -----
-    def _load_config(self) -> dict:
-        cfg_path = self.project_root / "configs" / "config.json"
-        try:
-            data = json.loads(cfg_path.read_text(encoding="utf-8"))
-            return data
-        except FileNotFoundError:
-            messagebox.showwarning("Config", f"Config not found: {cfg_path}\n원격 AI 없이 실행됩니다.")
-            return {}
-        except Exception as e:
-            messagebox.showerror("Config Error", str(e))
-            return {}
-
-    # ----- Menu/UI -----
     def _build_menu(self):
         menubar = tk.Menu(self)
-
         game = tk.Menu(menubar, tearoff=0)
         game.add_command(label="New Game", command=self._new_game)
         game.add_command(label="Undo (Takeback)", command=self._undo_move)
@@ -84,30 +57,45 @@ class ChessApp(tk.Tk):
 
         view = tk.Menu(menubar, tearoff=0)
         view.add_command(label="Flip Board", command=self._flip_board)
+        view.add_command(label="Bottom: White", command=lambda: self._set_bottom("white"))
+        view.add_command(label="Bottom: Black", command=lambda: self._set_bottom("black"))
         menubar.add_cascade(label="View", menu=view)
 
         mode = tk.Menu(menubar, tearoff=0)
         mode.add_command(label="Human vs Human", command=lambda: self._set_mode(None))
-        mode.add_command(label="Human (White) vs AI", command=lambda: self._set_mode("black"))
-        mode.add_command(label="Human (Black) vs AI", command=lambda: self._set_mode("white"))
+        mode.add_command(label="Play as White vs AI", command=lambda: self._set_mode("black", player_bottom="white"))
+        mode.add_command(label="Play as Black vs AI", command=lambda: self._set_mode("white", player_bottom="black"))
         menubar.add_cascade(label="Mode", menu=mode)
-
         self.config(menu=menubar)
 
-    # ----- Callbacks -----
+    # ---- Actions ----
     def _on_user_move(self, uci: str):
-        applied = self.game.apply_uci(uci)
-        if not applied:
+        # 같은 칸(e7e7) 입력 사전 차단
+        if len(uci) >= 4 and uci[:2] == uci[2:4]:
             return
-        self.status_var.set(self.game.status_text())
-        self.board_view.redraw()
-        self._maybe_start_ai()
+        mv = chess.Move.from_uci(uci)
+        piece = self.game.board.piece_at(mv.from_square)
+        if not piece:
+            return
+        code = ('w' if piece.color == chess.WHITE else 'b') + piece.symbol().upper()
 
-    # ----- Actions -----
+        def commit():
+            ok = self.game.apply_uci(uci)
+            if ok:
+                self.status_var.set(self.game.status_text())
+                self.board_view.redraw()
+                self._maybe_start_ai()
+            else:
+                messagebox.showwarning("Illegal", f"Illegal move: {uci}")
+                self.board_view.redraw()
+
+        self.board_view.animate_move(code, mv.from_square, mv.to_square, duration_ms=180, done=commit)
+
     def _new_game(self):
         self._cancel_ai()
         self.game = GameState()
         self.board_view.game = self.game
+        self.board_view.set_bottom(self.player_bottom)
         self.status_var.set(self.game.status_text())
         self.board_view.redraw()
         self._maybe_start_ai()
@@ -117,7 +105,8 @@ class ChessApp(tk.Tk):
         if not self.game.board.move_stack:
             return
         self.game.undo(1)
-        if self.ai_color is not None and self.game.board.move_stack and (("white" if self.game.board.turn else "black") == self.ai_color):
+        if self.ai_color is not None and self.game.board.move_stack and \
+           (("white" if self.game.board.turn == chess.WHITE else "black") == self.ai_color):
             self.game.undo(1)
         self.status_var.set(self.game.status_text())
         self.board_view.redraw()
@@ -147,41 +136,43 @@ class ChessApp(tk.Tk):
     def _flip_board(self):
         self.board_view.set_flipped(not self.board_view.flipped)
 
-    def _set_mode(self, ai_color: str | None):
+    def _set_bottom(self, color: str):
+        self.player_bottom = color
+        self.board_view.set_bottom(color)
+
+    def _set_mode(self, ai_color: str | None, player_bottom: str | None = None):
         self.ai_color = ai_color
+        if player_bottom:
+            self._set_bottom(player_bottom)
         self.status_var.set(self.game.status_text())
         self._maybe_start_ai()
 
-    # ----- AI control -----
+    # ---- AI control (local simple_ai) ----
     def _cancel_ai(self):
-        if self.ai_worker and self.ai_worker.is_alive():
-            self.ai_worker.cancel()
-        self.ai_worker = None
+        self.ai_worker = None  # simple thread, no cancel hook
 
     def _maybe_start_ai(self):
         if self.game.is_game_over() or self.ai_color is None:
             if self.game.is_game_over():
                 messagebox.showinfo("Game Over", self.game.status_text())
             return
-        
         side = "white" if self.game.board.turn == chess.WHITE else "black"
         if side != self.ai_color:
             return
-        if not self.ai_client:
-            # messagebox.showwarning("AI", "원격 AI가 설정되지 않았습니다 (configs/config.json).")
-            mv = SimpleAI().best_move(self.game.board, depth=3)
-            if mv:
-                self.game.apply_uci(mv.uci())
-                self.board_view.redraw()
-                self.status_var.set(self.game.status_text())
-                if self.game.is_game_over():
-                    messagebox.showinfo("Game Over", self.game.status_text())
-            return
-        
-        fen = self.game.fen
-        history = [mv.uci() for mv in self.game.board.move_stack]
-        self.ai_worker = RemoteAIWorker(self.ai_client, fen, history, self.ai_queue, think_ms=self.ai_think_ms)
-        self.ai_worker.start()
+
+        def run_ai():
+            try:
+                mv = SimpleAI().best_move(self.game.board, depth=3)
+                if mv:
+                    self.ai_queue.put(("move", {"move": mv.uci()}))
+                else:
+                    self.ai_queue.put(("error", {"error": "no_move"}))
+            except Exception as e:
+                self.ai_queue.put(("error", {"error": "exception", "detail": str(e)}))
+
+        t = threading.Thread(target=run_ai, daemon=True)
+        self.ai_worker = t
+        t.start()
 
     def _poll_ai(self):
         try:
@@ -189,20 +180,31 @@ class ChessApp(tk.Tk):
                 kind, payload = self.ai_queue.get_nowait()
                 if kind == "move":
                     uci = payload.get("move")
-                    if uci:
-                        ok = self.game.apply_uci(uci)
-                        if ok:
+                    mv = chess.Move.from_uci(uci)
+                    piece = self.game.board.piece_at(mv.from_square)
+                    if not piece:
+                        if uci and self.game.apply_uci(uci):
+                            self.board_view.redraw()
+                            self.status_var.set(self.game.status_text())
+                        continue
+                    code = ('w' if piece.color == chess.WHITE else 'b') + piece.symbol().upper()
+
+                    def commit_ai():
+                        if uci and self.game.apply_uci(uci):
                             self.board_view.redraw()
                             self.status_var.set(self.game.status_text())
                             if self.game.is_game_over():
                                 messagebox.showinfo("Game Over", self.game.status_text())
                         else:
-                            messagebox.showwarning("AI Move Illegal", f"Illegal move from AI: {uci}")
+                            messagebox.showwarning("AI Move Illegal", f"Illegal move: {uci}")
+
+                    self.board_view.animate_move(code, mv.from_square, mv.to_square, duration_ms=180, done=commit_ai)
+
                 elif kind == "error":
-                    detail = payload.get("detail")
+                    detail = payload.get("detail", "")
                     msg = payload.get("error", "error")
-                    messagebox.showerror("AI Error", f"{msg}\n{detail or ''}")
-        except Exception:
+                    messagebox.showerror("AI Error", f"{msg}\n{detail}")
+        except queue.Empty:
             pass
         finally:
             self.after(80, self._poll_ai)

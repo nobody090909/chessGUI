@@ -9,7 +9,7 @@ chess-proto/
 ├─ .gitignore
 ├─ .env.example
 ├─ configs/
-│  ├─ config.example.json          # AI_URL, API_KEY 등 예시
+│  ├─ config.example.json          
 │  └─ config.json                  # 실제 설정(개인 토큰/엔드포인트) — 커밋 제외 권장
 ├─ assets/
 │  ├─ svg/

@@ -11,6 +11,7 @@ from gui.board_view import BoardView
 from gui.assets_loader import load_piece_images
 from gui.dialogs import ask_fen, save_pgn_dialog
 from services.telemetry import setup_logging
+from replay_bootstrap import attach_replay
 
 DEFAULT_SQ = 72
 
@@ -42,6 +43,11 @@ class ChessApp(tk.Tk):
         self.status_bar.pack(fill="x")
 
         self.after(80, self._poll_ai)
+
+        try:
+            attach_replay(self)
+        except Exception as e:
+            print(f"[x] replay attach failed: {e}")
 
     def _build_menu(self):
         menubar = tk.Menu(self)

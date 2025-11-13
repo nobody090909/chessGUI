@@ -18,7 +18,7 @@ DEFAULT_SQ = 72
 class ChessApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Python Chess — Local AI")
+        self.title("Check, Mate")
         self.resizable(False, False)
 
         self.project_root = Path(__file__).resolve().parents[2]

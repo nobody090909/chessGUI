@@ -3,18 +3,16 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, List, Optional
 
-from app.history import MoveHistory
-
+from history import MoveHistory
 
 class ReplayPanel(ttk.Frame):
     """
-    - MoveHistory + board를 받아 이동 리스트/점프 컨트롤 제공
-    - 버튼/더블클릭으로 임의 ply로 점프
-    - redraw: 보드 재렌더 콜백
-    - on_jump: 점프 후 호출(예: AI 한 턴 트리거)
-    - busy: (on: bool) -> None  형태의 로딩 표시 콜백
+    - Move list UI with jump controls
+    - Double-click to jump
+    - redraw: callable to re-render board
+    - on_jump: callable after a jump (e.g., trigger AI turn)
+    - busy: callable(bool) to show/hide a lightweight busy indicator
     """
-
     def __init__(
         self,
         master,
@@ -33,39 +31,35 @@ class ReplayPanel(ttk.Frame):
         self._on_jump = on_jump or (lambda: None)
         self._busy = busy or (lambda _on: None)
 
-        # 상단 컨트롤 바
+        # toolbar
         bar = ttk.Frame(self)
         bar.pack(side=tk.TOP, fill=tk.X, padx=4, pady=4)
-
         self.btn_first = ttk.Button(bar, text="<<", width=3, command=self._goto_first)
         self.btn_prev  = ttk.Button(bar, text="<", width=3, command=self._goto_prev)
-        self.btn_next  = ttk.Button(bar, text=">>", width=3, command=self._goto_next)
-        self.btn_last  = ttk.Button(bar, text=">", width=3, command=self._goto_last)
-
+        self.btn_next  = ttk.Button(bar, text=">", width=3, command=self._goto_next)
+        self.btn_last  = ttk.Button(bar, text=">>", width=3, command=self._goto_last)
         self.btn_first.pack(side=tk.LEFT, padx=2)
         self.btn_prev.pack(side=tk.LEFT, padx=2)
         self.btn_next.pack(side=tk.LEFT, padx=2)
         self.btn_last.pack(side=tk.LEFT, padx=2)
-
         self.lbl_status = ttk.Label(bar, text="0 / 0")
         self.lbl_status.pack(side=tk.RIGHT)
 
-        # 이동 리스트(1수=최대 2 ply를 한 줄로 표기)
+        # move list
         self.listbox = tk.Listbox(self, height=18, activestyle="dotbox")
         self.listbox.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
         self.listbox.bind("<Double-Button-1>", self._on_dblclick)
 
-        # 히스토리 변경 시 UI/보드 리프레시
+        # history change binding
         self.history.bind_on_change(self._on_history_change)
         self._refresh_list()
 
-    # 외부에서 보드가 교체되면 반드시 호출
+    # external rebind when board object is replaced
     def rebind(self, new_board) -> None:
         self.board = new_board
-        # 리스트와 상태 갱신
         self._refresh_list()
 
-    # ---------- 버튼 핸들러 ----------
+    # buttons
     def _goto_first(self):
         self._busy(True)
         try:
@@ -102,10 +96,10 @@ class ReplayPanel(ttk.Frame):
         finally:
             self._busy(False)
 
-    # ---------- 더블클릭 ----------
+    # double-click jump (row → ply = row*2+2)
     def _on_dblclick(self, ev):
         row = self.listbox.nearest(ev.y)
-        target = min(self.history.total, row * 2 + 2)  # 해당 수의 끝으로 점프
+        target = min(self.history.total, row * 2 + 2)
         self._busy(True)
         try:
             self.history.goto(self.board, target)
@@ -114,7 +108,7 @@ class ReplayPanel(ttk.Frame):
         finally:
             self._busy(False)
 
-    # ---------- 히스토리 변경 시 UI 갱신 ----------
+    # UI refresh on history changes
     def _on_history_change(self, cursor: int, total: int):
         self._refresh_list()
         self._redraw()
@@ -136,7 +130,6 @@ class ReplayPanel(ttk.Frame):
         for r in rows:
             self.listbox.insert(tk.END, r)
 
-        # 커서가 가리키는 ply를 행 단위로 강조
         current = self.history.cursor
         row_idx = max(0, (current - 1) // 2) if current > 0 else 0
         if self.listbox.size() > 0:

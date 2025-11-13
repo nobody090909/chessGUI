@@ -16,7 +16,7 @@ class MoveMeta:
     is_enpassant: bool = False
 
 class MoveHistory:
-    """선형 타임라인 + 스냅샷 stride로 임의 시점 점프 가속"""
+    """Linear timeline with snapshot stride for fast random access."""
     def __init__(
         self,
         get_state: Callable[[Any], State],
@@ -48,6 +48,7 @@ class MoveHistory:
         self._fire()
 
     def push(self, board: Any, move: MoveMeta) -> None:
+        # 새 갈래가 열리면 꼬리 제거
         if self._cursor < len(self._moves):
             del self._moves[self._cursor:]
             for k in list(self._snapshots.keys()):
@@ -70,6 +71,7 @@ class MoveHistory:
             raise IndexError(f"goto out of range: {target_index}")
         if target_index == self._cursor:
             return
+        # 가장 가까운 이전 스냅샷부터 재적용
         snap = max([i for i in self._snapshots.keys() if i <= target_index], default=0)
         self.set_state(board, copy.deepcopy(self._snapshots[snap]))
         for i in range(snap, target_index):
